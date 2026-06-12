@@ -1,4 +1,5 @@
 # Naura Landing page
+# ⚠️⚠️ This is a public repository ! Never commit confidential or secret information here ⚠️⚠️
 
 This repository contains the source code and configuration for the Naura website, which is automatically deployed using **GitHub Pages**.
 
