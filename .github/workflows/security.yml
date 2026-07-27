@@ -31,16 +31,14 @@ concurrency:
 
 jobs:
 
-  # ── SAST - Semgrep (enabled, blocks on findings) ────────────────────────────
+  # ── SAST - Semgrep (enabled; reports WARNING+ERROR, blocks on ERROR only) ───
   sast:
     name: "SAST · Semgrep"
     uses: nauralab-io/security/.github/workflows/sast.yml@main
     with:
-      # severity: not set - inherits sast.yml's own default (WARNING = ERROR +
-      # WARNING rules). That's Semgrep's own recommended baseline: most rules
-      # fire at WARNING, so filtering down to ERROR-only skips nearly
-      # everything real and mostly leaves noisy edge-case rules.
-      blocking: true    # fails the job - and blocks merge - on a finding
+      severity: WARNING       # report both WARNING and ERROR findings (Semgrep's own recommended baseline)
+      block_severity: ERROR   # but only fail the job on an ERROR-level finding - WARNING stays visible, non-blocking
+      blocking: true
     # Required: forwards whatever secrets sast.yml needs (e.g. SEMGREP_APP_TOKEN)
     # without this repo having to know its internal secret names - the module
     # itself is versioned and trusted.
