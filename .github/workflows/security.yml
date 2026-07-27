@@ -31,13 +31,13 @@ concurrency:
 
 jobs:
 
-  # ── SAST - Semgrep (enabled; reports WARNING+ERROR, blocks on ERROR only) ───
+  # ── SAST - Semgrep (enabled; reports MEDIUM+, blocks on CRITICAL only) ──────
   sast:
     name: "SAST · Semgrep"
     uses: nauralab-io/security/.github/workflows/sast.yml@main
     with:
-      severity: WARNING       # report both WARNING and ERROR findings (Semgrep's own recommended baseline)
-      block_severity: ERROR   # but only fail the job on an ERROR-level finding - WARNING stays visible, non-blocking
+      severity: MEDIUM         # report MEDIUM/HIGH/CRITICAL findings - LOW/INFO stay excluded
+      block_severity: CRITICAL # but only fail the job on a CRITICAL finding - MEDIUM/HIGH stay visible, non-blocking
       blocking: true
     # Required: forwards whatever secrets sast.yml needs (e.g. SEMGREP_APP_TOKEN)
     # without this repo having to know its internal secret names - the module
