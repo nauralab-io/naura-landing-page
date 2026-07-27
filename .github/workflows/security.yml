@@ -31,14 +31,20 @@ concurrency:
 
 jobs:
 
-  # ── SAST - Semgrep (enabled, blocks on critical) ────────────────────────────
+  # ── SAST - Semgrep (enabled, blocks on findings) ────────────────────────────
   sast:
     name: "SAST · Semgrep"
     uses: nauralab-io/security/.github/workflows/sast.yml@main
     with:
-      severity: ERROR   # ERROR = critical findings only (see sast.yml for WARNING/INFO)
-      blocking: true    # fails the job - and blocks merge - on a critical finding
-    secrets: inherit
+      # severity: not set - inherits sast.yml's own default (WARNING = ERROR +
+      # WARNING rules). That's Semgrep's own recommended baseline: most rules
+      # fire at WARNING, so filtering down to ERROR-only skips nearly
+      # everything real and mostly leaves noisy edge-case rules.
+      blocking: true    # fails the job - and blocks merge - on a finding
+    # Required: forwards whatever secrets sast.yml needs (e.g. SEMGREP_APP_TOKEN)
+    # without this repo having to know its internal secret names - the module
+    # itself is versioned and trusted.
+    secrets: inherit  # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
 
   # ── Secrets - Gitleaks (enabled, blocks on any secret found) ────────────────
   secrets:
@@ -46,7 +52,9 @@ jobs:
     uses: nauralab-io/security/.github/workflows/secrets.yml@main
     with:
       blocking: true   # fails the job - and blocks merge - if any secret is found
-    secrets: inherit
+    # Required: forwards whatever secrets secrets.yml needs - the module
+    # itself is versioned and trusted.
+    secrets: inherit  # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
 
   # ── SCA - Grype + Syft (present, disabled by default - uncomment to enable) ─
   # sca:
