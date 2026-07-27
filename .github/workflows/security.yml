@@ -1,0 +1,85 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Example: minimal security pipeline for a regular project.
+#
+# Copy this to your repo's .github/workflows/security.yml and adjust the
+# placeholders. SAST and Secrets are enabled and blocking out of the box -
+# that's the recommended baseline for any repo. SCA, SonarQube, and the
+# Protocol Fuzzer are included below but commented out: uncomment and fill in
+# the placeholders only for repos that actually need that extra coverage.
+# ══════════════════════════════════════════════════════════════════════════════
+
+name: Security
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  security-events: write
+  contents: read
+  issues: write         # advisory issues (secrets, SAST, protocol fuzzer if enabled)
+  pull-requests: write  # SonarQube PR decoration, if enabled
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ── SAST - Semgrep (enabled, blocks on critical) ────────────────────────────
+  sast:
+    name: "SAST · Semgrep"
+    uses: nauralab-io/security/.github/workflows/sast.yml@main
+    with:
+      severity: ERROR   # ERROR = critical findings only (see sast.yml for WARNING/INFO)
+      blocking: true    # fails the job - and blocks merge - on a critical finding
+    secrets: inherit
+
+  # ── Secrets - Gitleaks (enabled, blocks on any secret found) ────────────────
+  secrets:
+    name: "Secrets · Gitleaks"
+    uses: nauralab-io/security/.github/workflows/secrets.yml@main
+    with:
+      blocking: true   # fails the job - and blocks merge - if any secret is found
+    secrets: inherit
+
+  # ── SCA - Grype + Syft (present, disabled by default - uncomment to enable) ─
+  # sca:
+  #   name: "SCA · Grype"
+  #   uses: nauralab-io/security/.github/workflows/sca.yml@main
+  #   with:
+  #     fail_on: critical
+  #     install_cmd: "pip install -r requirements.txt"   # adjust to your repo's dependency install
+  #     blocking: false   # start advisory while CVE findings are first triaged
+  #   secrets: inherit
+
+  # ── SAST - SonarQube (present, disabled by default - uncomment to enable) ───
+  # sonar:
+  #   name: "SAST · SonarQube"
+  #   uses: nauralab-io/security/.github/workflows/sonar.yml@main
+  #   with:
+  #     project_key: "nauralab-io_<your-repo-name>"   # required
+  #     organization: "nauralab-io"
+  #     quality_gate: true
+  #     blocking: false   # start advisory while the project is first analysed
+  #   secrets: inherit   # needs SONAR_TOKEN configured as a repo/org secret
+
+  # ── Fuzzing - Protocol Fuzzer (present, disabled by default) ────────────────
+  # Only relevant for repos testing a non-HTTP protocol (binary/TLS framing) -
+  # see docs/protocol-fuzz.md before enabling.
+  # protocol-fuzz:
+  #   name: "Fuzzing · Protocol Fuzzer"
+  #   uses: nauralab-io/security/.github/workflows/protocol-fuzz.yml@main
+  #   with:
+  #     compose_file: "path/to/docker-compose.fuzz.yml"   # required - see docs/protocol-fuzz.md
+  #     target_host: "127.0.0.1"
+  #     target_port: 0000
+  #     test_directory: "path/to/fuzz/suite"
+  #     blocking: false   # start advisory while the suite is first baselined
+  #   secrets:
+  #     registry_token: ${{ secrets.PACKAGES_READ_TOKEN }}   # only if the build needs a private registry token
