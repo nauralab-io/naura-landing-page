@@ -1,0 +1,25 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Example: close a PR's finding issues automatically when the PR closes.
+#
+# The scanning modules label every issue they open against a PR with `pr-<N>`.
+# Once that PR is merged or closed, no more scans run on it, so those issues
+# would otherwise sit open forever. This workflow closes them.
+#
+# Copy this to your repo's .github/workflows/security-pr-cleanup.yml as-is.
+# Keep it SEPARATE from your main security.yml: this fires on the PR's `closed`
+# event, whereas the scanners run on opened/synchronize/reopened.
+# ══════════════════════════════════════════════════════════════════════════════
+
+name: Security · PR cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  issues: write
+
+jobs:
+  cleanup:
+    uses: nauralab-io/security/.github/workflows/pr-cleanup.yml@main
+    secrets: inherit  # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
