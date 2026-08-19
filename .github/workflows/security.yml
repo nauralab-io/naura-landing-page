@@ -1,11 +1,31 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# Example: minimal security pipeline for a regular project.
+# Example: security pipeline for a regular project.
 #
 # Copy this to your repo's .github/workflows/security.yml and adjust the
 # placeholders. SAST and Secrets are enabled and blocking out of the box -
-# that's the recommended baseline for any repo. SCA, SonarQube, and the
+# that's the recommended baseline for any repo. SCA is enabled too, but
+# schedule-only (weekly, not on every push/PR) - set install_cmd to match
+# your repo's dependency install so Syft resolves them. SonarQube and the
 # Protocol Fuzzer are included below but commented out: uncomment and fill in
 # the placeholders only for repos that actually need that extra coverage.
+#
+# ── Enabling/disabling a control ─────────────────────────────────────────────
+# Every job below is ALWAYS present in this file - never comment a job out.
+# `summary` at the bottom `needs:` all three by name, and a job that vanishes
+# from the file makes the ENTIRE workflow invalid (not just that job), so
+# every push fails with "depends on unknown job 'x'" before anything even
+# runs. To turn a control off, flip its `enabled:` line to `false` instead:
+#
+#   sast:
+#     with:
+#       enabled: false   # <- disabled
+#
+# The job stays defined (so `needs:` below stays valid) but never runs, and
+# `summary` shows it as "Disabled".
+#
+# `schedule_only: true/false` on each job controls whether it runs on every
+# push/PR (false) or only on the schedule/workflow_dispatch triggers below
+# (true) - same knob SCA already uses, now on SAST and Secrets too.
 # ══════════════════════════════════════════════════════════════════════════════
 
 name: Security
@@ -16,13 +36,14 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   schedule:
-    - cron: "0 2 * * *"
+    - cron: "0 2 * * 0"  # weekly, Sunday 02:00 UTC
   workflow_dispatch:
 
 permissions:
   security-events: write
   contents: read
-  issues: write         # advisory issues (secrets, SAST, protocol fuzzer if enabled)
+  actions: read          # modules' upload-sarif / sbom-action read the run
+  issues: write         # every module opens a GitHub Issue on any finding, regardless of blocking status
   pull-requests: write  # SonarQube PR decoration, if enabled
 
 concurrency:
@@ -36,9 +57,12 @@ jobs:
     name: "SAST · Semgrep"
     uses: nauralab-io/security/.github/workflows/sast.yml@main
     with:
-      severity: MEDIUM         # report MEDIUM/HIGH/CRITICAL findings - LOW/INFO stay excluded
-      block_severity: CRITICAL # but only fail the job on a CRITICAL finding - MEDIUM/HIGH stay visible, non-blocking
+      enabled: true             # set to false to disable this control - see note at top of file
+      severity: MEDIUM          # report MEDIUM/HIGH/CRITICAL findings - LOW/INFO stay excluded
+      block_severity: CRITICAL  # but only fail the job on a CRITICAL finding - MEDIUM/HIGH stay visible, non-blocking
       blocking: true
+      schedule_only: false      # true = only run on the schedule/workflow_dispatch triggers above, not every push/PR
+      default_assignee: danylokazakov-naura  # falls back to the committer, then a repo maintainer, if unassignable
     # Required: forwards whatever secrets sast.yml needs (e.g. SEMGREP_APP_TOKEN)
     # without this repo having to know its internal secret names - the module
     # itself is versioned and trusted.
@@ -49,20 +73,26 @@ jobs:
     name: "Secrets · Gitleaks"
     uses: nauralab-io/security/.github/workflows/secrets.yml@main
     with:
-      blocking: true   # fails the job - and blocks merge - if any secret is found
+      enabled: true          # set to false to disable this control - see note at top of file
+      blocking: true         # fails the job - and blocks merge - if any secret is found
+      schedule_only: false   # true = only run on the schedule/workflow_dispatch triggers above, not every push/PR
+      default_assignee: danylokazakov-naura  # falls back to the committer, then a repo maintainer, if unassignable
     # Required: forwards whatever secrets secrets.yml needs - the module
     # itself is versioned and trusted.
     secrets: inherit  # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
 
-  # ── SCA - Grype + Syft (present, disabled by default - uncomment to enable) ─
-  # sca:
-  #   name: "SCA · Grype"
-  #   uses: nauralab-io/security/.github/workflows/sca.yml@main
-  #   with:
-  #     fail_on: critical
-  #     install_cmd: "pip install -r requirements.txt"   # adjust to your repo's dependency install
-  #     blocking: false   # start advisory while CVE findings are first triaged
-  #   secrets: inherit
+  # ── SCA - Grype + Syft (enabled, schedule-only) ─────────────────────────────
+  sca:
+    name: "SCA · Grype"
+    uses: nauralab-io/security/.github/workflows/sca.yml@main
+    with:
+      enabled: true        # set to false to disable this control - see note at top of file
+      fail_on: critical
+      blocking: true
+      schedule_only: true  # true = only run on the schedule/workflow_dispatch triggers above, not every push/PR
+      default_assignee: danylokazakov-naura  # falls back to the committer, then a repo maintainer, if unassignable
+      # install_cmd: "pip install -r requirements.txt"   # adjust to your repo's dependency install so Syft resolves them
+    secrets: inherit  # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
 
   # ── SAST - SonarQube (present, disabled by default - uncomment to enable) ───
   # sonar:
@@ -86,6 +116,63 @@ jobs:
   #     target_host: "127.0.0.1"
   #     target_port: 0000
   #     test_directory: "path/to/fuzz/suite"
-  #     blocking: false   # start advisory while the suite is first baselined
+  #     blocking: false      # start advisory while the suite is first baselined
+  #     schedule_only: true  # a full fuzz run is slow - nightly/on-demand instead of every push/PR
   #   secrets:
   #     registry_token: ${{ secrets.PACKAGES_READ_TOKEN }}   # only if the build needs a private registry token
+
+  # ── Overall roll-up: one combined summary across the enabled controls ────────
+  # `needs:` names all three jobs above by their fixed id - they must always
+  # stay defined (see "Enabling/disabling a control" at the top of this file).
+  # If you enable SonarQube/Fuzzer above, add that job here too and echo a
+  # matching row below.
+  summary:
+    name: "Security · Summary"
+    needs: [sast, secrets, sca]
+    if: always()   # run even when a control fails, is skipped, or is disabled
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write overall security summary
+        # Values via env, never inlined into the script (shell-injection-safe).
+        # ENABLED mirrors each job's own `with: enabled:` above - keep them in
+        # sync when you flip one.
+        env:
+          SAST_ENABLED: true
+          SAST_RESULT: ${{ needs.sast.result }}
+          SAST_FINDINGS: ${{ needs.sast.outputs.findings_count }}
+          SAST_BLOCKING: ${{ needs.sast.outputs.blocking_count }}
+          SECRETS_ENABLED: true
+          SECRETS_RESULT: ${{ needs.secrets.result }}
+          SECRETS_LEAKS: ${{ needs.secrets.outputs.leaks_count }}
+          SCA_ENABLED: true
+          SCA_RESULT: ${{ needs.sca.result }}
+          SCA_TOTAL: ${{ needs.sca.outputs.total_findings }}
+          SCA_NEW: ${{ needs.sca.outputs.new_findings }}
+        run: |
+          icon() { case "$1" in success) echo "✅";; failure) echo "❌";; skipped) echo "⏭️";; *) echo "⚪";; esac; }
+          # $1=enabled ("true"/"false") $2=result $3=label $4=findings detail
+          row() {
+            if [ "$1" != "true" ]; then
+              echo "| $3 | ⏸️ Disabled | - |"
+            else
+              echo "| $3 | $(icon "$2") \`${2}\` | $4 |"
+            fi
+          }
+          {
+            echo "## 🛡️ Security scan summary"
+            echo ""
+            echo "| Control | Result | Findings |"
+            echo "|---------|--------|----------|"
+            row "$SAST_ENABLED" "$SAST_RESULT" "SAST · Semgrep" "${SAST_FINDINGS:-0} reported, ${SAST_BLOCKING:-0} blocking"
+            row "$SECRETS_ENABLED" "$SECRETS_RESULT" "Secrets · Gitleaks" "${SECRETS_LEAKS:-0} leak(s)"
+            row "$SCA_ENABLED" "$SCA_RESULT" "SCA · Grype" "${SCA_TOTAL:-0} CVE(s)${SCA_NEW:+, ${SCA_NEW} new}"
+            echo ""
+            echo "Per-tool detail is in each job above. Findings are also filed as GitHub issues (one per author, deduped)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+# ── PR cleanup (recommended companion, separate file) ─────────────────────────
+# Issues opened against a PR are labelled `pr-<N>`. When that PR closes they'd
+# otherwise stay open forever - add examples/pr-cleanup.yml (a standalone
+# workflow on the pull_request:closed event) to close them automatically.
+# It can't live in this file: this one triggers on opened/synchronize/reopened,
+# that one on closed.
