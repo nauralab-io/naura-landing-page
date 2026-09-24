@@ -40,6 +40,7 @@ on:
   push:
     branches: [main, master]
   pull_request:
+    branches: [main, master]   # only PRs targeting a default branch - not e.g. feature-into-feature
     types: [opened, synchronize, reopened]
   schedule:
     - cron: "0 2 * * 0"  # weekly, Sunday 02:00 UTC
